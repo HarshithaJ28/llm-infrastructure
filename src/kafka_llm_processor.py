@@ -26,6 +26,14 @@ except ImportError:
     AUDIT_LOGGING_AVAILABLE = False
     logger.warning("Audit logging not available. Install dependencies.")
 
+# Import drift detector (optional - only if available)
+try:
+    from drift_detector import DriftDetector, DriftMonitor
+    DRIFT_DETECTION_AVAILABLE = True
+except ImportError:
+    DRIFT_DETECTION_AVAILABLE = False
+    logger.warning("Drift detection not available. Install scipy for full functionality.")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -245,6 +253,35 @@ class KafkaLLMProcessor:
             except Exception as e:
                 logger.warning(f"Failed to initialize audit logger: {e}")
         
+        # Initialize drift detector if available
+        self.drift_monitor = None
+        if DRIFT_DETECTION_AVAILABLE and config.get('enable_drift_detection', True):
+            try:
+                detector = DriftDetector(
+                    baseline_window_size=config.get('drift_baseline_window', 100),
+                    detection_window_size=config.get('drift_detection_window', 50),
+                    drift_threshold=config.get('drift_threshold', 0.05),
+                    min_samples=config.get('drift_min_samples', 20)
+                )
+                
+                db_path = config.get('drift_db_path', os.getenv('DRIFT_DB_PATH', 'drift_alerts.db'))
+                
+                # Alert callback for logging
+                def drift_alert_callback(drift_result):
+                    logger.warning(
+                        f"DRIFT DETECTED: score={drift_result['drift_score']:.3f}, "
+                        f"features={drift_result['drifted_features']}"
+                    )
+                
+                self.drift_monitor = DriftMonitor(
+                    detector=detector,
+                    db_path=db_path,
+                    alert_callback=drift_alert_callback
+                )
+                logger.info(f"Drift detection enabled: {db_path}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize drift detector: {e}")
+        
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -299,6 +336,31 @@ class KafkaLLMProcessor:
                 llm_response,
                 processing_time
             )
+            
+            # Check for drift if LLM response successful
+            if self.drift_monitor and llm_response:
+                try:
+                    drift_output = {
+                        'text': result_message.get('llm_response', ''),
+                        'tokens_used': result_message.get('tokens_used', 0),
+                        'processing_time_ms': processing_time
+                    }
+                    
+                    drift_result = self.drift_monitor.add_output(drift_output)
+                    
+                    if drift_result:
+                        # Add drift alert to result message
+                        result_message['drift_alert'] = {
+                            'drift_detected': True,
+                            'drift_score': drift_result['drift_score'],
+                            'drifted_features': drift_result['drifted_features']
+                        }
+                        logger.warning(
+                            f"Drift detected for request {result_message['request_id']}: "
+                            f"score={drift_result['drift_score']:.3f}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Error in drift detection: {e}")
             
             # Log to audit trail
             if self.audit_logger:
@@ -409,7 +471,13 @@ def load_config() -> Dict:
         'model_name': os.getenv('MODEL_NAME', 'llama2'),  # Default Ollama model
         'llm_timeout': int(os.getenv('LLM_TIMEOUT', '120')),  # Longer timeout for CPU-based Ollama (2 minutes)
         'enable_audit_logging': os.getenv('ENABLE_AUDIT_LOGGING', 'true').lower() == 'true',
-        'audit_db_path': os.getenv('AUDIT_DB_PATH', 'audit_logs.db')
+        'audit_db_path': os.getenv('AUDIT_DB_PATH', 'audit_logs.db'),
+        'enable_drift_detection': os.getenv('ENABLE_DRIFT_DETECTION', 'true').lower() == 'true',
+        'drift_db_path': os.getenv('DRIFT_DB_PATH', 'drift_alerts.db'),
+        'drift_baseline_window': int(os.getenv('DRIFT_BASELINE_WINDOW', '100')),
+        'drift_detection_window': int(os.getenv('DRIFT_DETECTION_WINDOW', '50')),
+        'drift_threshold': float(os.getenv('DRIFT_THRESHOLD', '0.05')),
+        'drift_min_samples': int(os.getenv('DRIFT_MIN_SAMPLES', '20'))
     }
 
 
