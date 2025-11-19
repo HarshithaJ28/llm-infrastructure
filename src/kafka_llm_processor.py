@@ -18,6 +18,14 @@ import requests
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 
+# Import audit logger (optional - only if available)
+try:
+    from audit_logger import AuditLogger
+    AUDIT_LOGGING_AVAILABLE = True
+except ImportError:
+    AUDIT_LOGGING_AVAILABLE = False
+    logger.warning("Audit logging not available. Install dependencies.")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -227,6 +235,16 @@ class KafkaLLMProcessor:
             batch_size=16384
         )
         
+        # Initialize audit logger if available
+        self.audit_logger = None
+        if AUDIT_LOGGING_AVAILABLE and config.get('enable_audit_logging', True):
+            try:
+                db_path = config.get('audit_db_path', os.getenv('AUDIT_DB_PATH', 'audit_logs.db'))
+                self.audit_logger = AuditLogger(db_path=db_path)
+                logger.info(f"Audit logging enabled: {db_path}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize audit logger: {e}")
+        
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -281,6 +299,31 @@ class KafkaLLMProcessor:
                 llm_response,
                 processing_time
             )
+            
+            # Log to audit trail
+            if self.audit_logger:
+                try:
+                    audit_metadata = {
+                        'request_id': result_message['request_id'],
+                        'timestamp': result_message['timestamp'],
+                        'model_version': self.config['model_name'],
+                        'model_parameters': {
+                            'temperature': 0.7,
+                            'max_tokens': 200
+                        },
+                        'processing_time_ms': processing_time,
+                        'tenant_id': document.get('tenant_id'),
+                        'user_id': document.get('user_id'),
+                        'source': document.get('source', 'unknown')
+                    }
+                    
+                    self.audit_logger.log_request(
+                        input_text=document_text,
+                        model_response=llm_response,
+                        metadata=audit_metadata
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log audit entry: {e}")
             
             # Send to output topic
             future = self.producer.send(
@@ -364,7 +407,9 @@ def load_config() -> Dict:
         'consumer_group': os.getenv('CONSUMER_GROUP', 'llm-processor-group'),
         'llm_url': os.getenv('LLM_URL', 'http://localhost:11434'),  # Ollama default port
         'model_name': os.getenv('MODEL_NAME', 'llama2'),  # Default Ollama model
-        'llm_timeout': int(os.getenv('LLM_TIMEOUT', '120'))  # Longer timeout for CPU-based Ollama (2 minutes)
+        'llm_timeout': int(os.getenv('LLM_TIMEOUT', '120')),  # Longer timeout for CPU-based Ollama (2 minutes)
+        'enable_audit_logging': os.getenv('ENABLE_AUDIT_LOGGING', 'true').lower() == 'true',
+        'audit_db_path': os.getenv('AUDIT_DB_PATH', 'audit_logs.db')
     }
 
 
