@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vllm-server
+  name: vllm-server 
   labels:
     app: vllm-server
 spec:
