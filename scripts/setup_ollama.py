@@ -45,14 +45,14 @@ def pull_model(model_name: str = "llama2"):
                 except:
                     pass
         
-        print(f"\n✅ Model '{model_name}' pulled successfully!")
+        print(f"\n[OK] Model '{model_name}' pulled successfully!")
         return True
         
     except requests.exceptions.Timeout:
-        print(f"\n❌ Timeout pulling model. Try again.")
+        print(f"\n[FAIL] Timeout pulling model. Try again.")
         return False
     except Exception as e:
-        print(f"\n❌ Error pulling model: {e}")
+        print(f"\n[FAIL] Error pulling model: {e}")
         return False
 
 def list_models():
@@ -96,14 +96,14 @@ def main():
     # Check if Ollama is running
     print("\n1. Checking if Ollama is running...")
     if not check_ollama_running():
-        print("❌ Ollama is not running!")
+        print("[FAIL] Ollama is not running!")
         print("\nStart it with:")
         print("  docker compose up -d ollama")
         print("\nOr if running locally:")
         print("  ollama serve")
         sys.exit(1)
     
-    print("✅ Ollama is running!")
+    print("[OK] Ollama is running!")
     
     # List models if requested
     if args.list:
@@ -113,7 +113,7 @@ def main():
     # Pull model
     print(f"\n2. Pulling model '{args.model}'...")
     if pull_model(args.model):
-        print(f"\n✅ Setup complete!")
+        print(f"\n[OK] Setup complete!")
         print(f"\nYou can now use model '{args.model}' in your pipeline.")
         print(f"\nSet environment variable:")
         print(f"  export MODEL_NAME={args.model}")

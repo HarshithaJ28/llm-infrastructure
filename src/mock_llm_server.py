@@ -11,8 +11,7 @@ import re
 app = Flask(__name__)
 
 def extract_financial_info(text: str) -> str:
-    """Extract key financial information from text."""
-    # Simple extraction logic for demo
+    """Extract key financial information from text using regex patterns."""
     info = []
     
     # Extract revenue/earnings

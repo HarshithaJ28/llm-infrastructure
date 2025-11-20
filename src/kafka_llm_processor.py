@@ -49,27 +49,38 @@ logger = logging.getLogger(__name__)
 class LLMProcessor:
     """Handles LLM inference requests."""
     
-    def __init__(self, llm_url: str, model_name: str, timeout: int = 30):
+    def __init__(self, llm_url: str, model_name: str, timeout: int = 30, 
+                 default_max_tokens: int = 200, default_temperature: float = 0.7):
         self.llm_url = llm_url
         self.model_name = model_name
         self.timeout = timeout
+        self.default_max_tokens = default_max_tokens
+        self.default_temperature = default_temperature
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
         
-    def process_document(self, document_text: str, max_tokens: int = 200, retries: int = 1) -> Optional[Dict]:
+    def process_document(self, document_text: str, max_tokens: int = None, retries: int = 1, 
+                        temperature: float = None) -> Optional[Dict]:
         """
         Process a document through LLM inference.
         Supports both OpenAI-compatible API and Ollama API.
         
         Args:
             document_text: The text content to process
-            max_tokens: Maximum tokens in response
+            max_tokens: Maximum tokens in response (default: from config or 200)
             retries: Number of retries on timeout (default: 1)
+            temperature: Temperature for generation (default: from config or 0.7)
             
         Returns:
             LLM response dict or None if error
         """
         prompt = f"Extract key information from the following financial document:\n\n{document_text}"
+        
+        # Use defaults from config if not provided
+        if max_tokens is None:
+            max_tokens = getattr(self, 'default_max_tokens', 200)
+        if temperature is None:
+            temperature = getattr(self, 'default_temperature', 0.7)
         
         # Use Ollama API (default) or OpenAI-compatible API
         # Check if URL contains ollama port (11434) or use OpenAI-compatible
@@ -81,7 +92,7 @@ class LLMProcessor:
                 "model": self.model_name,
                 "prompt": prompt,
                 "max_tokens": max_tokens,
-                "temperature": 0.7,
+                "temperature": temperature,
                 "top_p": 0.9
             }
             
@@ -107,7 +118,7 @@ class LLMProcessor:
                         "prompt": prompt,
                         "stream": False,  # Disable streaming to get single JSON response
                         "options": {
-                            "temperature": 0.7,
+                            "temperature": temperature,
                             "top_p": 0.9,
                             "num_predict": max_tokens
                         }
@@ -212,7 +223,9 @@ class KafkaLLMProcessor:
         self.llm_processor = LLMProcessor(
             llm_url=config['llm_url'],
             model_name=config['model_name'],
-            timeout=config.get('llm_timeout', 30)
+            timeout=config.get('llm_timeout', 30),
+            default_max_tokens=config.get('llm_max_tokens', 200),
+            default_temperature=config.get('llm_temperature', 0.7)
         )
         
         # Initialize Kafka consumer
@@ -327,7 +340,11 @@ class KafkaLLMProcessor:
             
             # Process through LLM
             start_time = time.time()
-            llm_response = self.llm_processor.process_document(document_text)
+            llm_response = self.llm_processor.process_document(
+                document_text,
+                max_tokens=self.config.get('llm_max_tokens', 200),
+                temperature=self.config.get('llm_temperature', 0.7)
+            )
             processing_time = (time.time() - start_time) * 1000
             
             # Create result message
@@ -370,8 +387,8 @@ class KafkaLLMProcessor:
                         'timestamp': result_message['timestamp'],
                         'model_version': self.config['model_name'],
                         'model_parameters': {
-                            'temperature': 0.7,
-                            'max_tokens': 200
+                            'temperature': self.config.get('llm_temperature', 0.7),
+                            'max_tokens': self.config.get('llm_max_tokens', 200)
                         },
                         'processing_time_ms': processing_time,
                         'tenant_id': document.get('tenant_id'),
@@ -470,6 +487,8 @@ def load_config() -> Dict:
         'llm_url': os.getenv('LLM_URL', 'http://localhost:11434'),  # Ollama default port
         'model_name': os.getenv('MODEL_NAME', 'llama2'),  # Default Ollama model
         'llm_timeout': int(os.getenv('LLM_TIMEOUT', '120')),  # Longer timeout for CPU-based Ollama (2 minutes)
+        'llm_max_tokens': int(os.getenv('LLM_MAX_TOKENS', '200')),
+        'llm_temperature': float(os.getenv('LLM_TEMPERATURE', '0.7')),
         'enable_audit_logging': os.getenv('ENABLE_AUDIT_LOGGING', 'true').lower() == 'true',
         'audit_db_path': os.getenv('AUDIT_DB_PATH', 'audit_logs.db'),
         'enable_drift_detection': os.getenv('ENABLE_DRIFT_DETECTION', 'true').lower() == 'true',

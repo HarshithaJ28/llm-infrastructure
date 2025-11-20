@@ -35,24 +35,24 @@ def check_docker_services():
         
         for service in required:
             if service in services:
-                print(f"  ✅ {service} - Running")
+                print(f"  [OK] {service} - Running")
                 running.append(service)
             else:
-                print(f"  ❌ {service} - Not running")
+                print(f"  [FAIL] {service} - Not running")
                 missing.append(service)
         
         if missing:
-            print(f"\n  ⚠️  Missing services: {', '.join(missing)}")
+            print(f"\n  [WARN] Missing services: {', '.join(missing)}")
             print("  Start with: docker compose up -d")
             return False
         
         return True
         
     except FileNotFoundError:
-        print("  ❌ Docker not found. Is Docker Desktop running?")
+        print("  [FAIL] Docker not found. Is Docker Desktop running?")
         return False
     except Exception as e:
-        print(f"  ❌ Error checking Docker: {e}")
+        print(f"  [FAIL] Error checking Docker: {e}")
         return False
 
 def check_kafka():
@@ -67,13 +67,13 @@ def check_kafka():
             request_timeout_ms=5000
         )
         producer.close()
-        print("  ✅ Kafka is accessible on localhost:9092")
+        print("  [OK] Kafka is accessible on localhost:9092")
         return True
     except ImportError:
-        print("  ❌ kafka-python not installed. Run: pip install -r requirements.txt")
+        print("  [FAIL] kafka-python not installed. Run: pip install -r requirements.txt")
         return False
     except Exception as e:
-        print(f"  ❌ Kafka not accessible: {e}")
+        print(f"  [FAIL] Kafka not accessible: {e}")
         print("  Make sure Kafka is running: docker compose up -d kafka")
         return False
 
@@ -85,23 +85,23 @@ def check_ollama():
         response = requests.get("http://localhost:11434/api/tags", timeout=5)
         if response.status_code == 200:
             models = response.json().get('models', [])
-            print(f"  ✅ Ollama is running on localhost:11434")
+            print(f"  [OK] Ollama is running on localhost:11434")
             if models:
-                print(f"  ✅ Models available: {len(models)}")
+                print(f"  [OK] Models available: {len(models)}")
                 for model in models[:3]:  # Show first 3
                     print(f"     - {model.get('name', 'unknown')}")
             else:
-                print("  ⚠️  No models installed. Run: python scripts/setup_ollama.py --model llama2")
+                print("  [WARN] No models installed. Run: python scripts/setup_ollama.py --model llama2")
             return True
         else:
-            print(f"  ❌ Ollama returned status {response.status_code}")
+            print(f"  [FAIL] Ollama returned status {response.status_code}")
             return False
     except requests.exceptions.ConnectionError:
-        print("  ❌ Ollama not accessible. Is it running?")
+        print("  [FAIL] Ollama not accessible. Is it running?")
         print("  Start with: docker compose up -d ollama")
         return False
     except Exception as e:
-        print(f"  ❌ Error checking Ollama: {e}")
+        print(f"  [FAIL] Error checking Ollama: {e}")
         return False
 
 def check_compliance_api():
@@ -111,27 +111,27 @@ def check_compliance_api():
     try:
         response = requests.get("http://localhost:5000/health", timeout=5)
         if response.status_code == 200:
-            print("  ✅ Compliance API is running on localhost:5000")
+            print("  [OK] Compliance API is running on localhost:5000")
             
             # Check statistics
             try:
                 stats_response = requests.get("http://localhost:5000/api/compliance/statistics", timeout=5)
                 if stats_response.status_code == 200:
                     stats = stats_response.json()
-                    print(f"  ✅ Audit logs: {stats.get('total_requests', 0)} requests logged")
+                    print(f"  [OK] Audit logs: {stats.get('total_requests', 0)} requests logged")
             except:
                 pass
             
             return True
         else:
-            print(f"  ❌ Compliance API returned status {response.status_code}")
+            print(f"  [FAIL] Compliance API returned status {response.status_code}")
             return False
     except requests.exceptions.ConnectionError:
-        print("  ❌ Compliance API not running")
+        print("  [FAIL] Compliance API not running")
         print("  Start with: python src/compliance_api.py")
         return False
     except Exception as e:
-        print(f"  ❌ Error checking Compliance API: {e}")
+        print(f"  [FAIL] Error checking Compliance API: {e}")
         return False
 
 def check_audit_database():
@@ -140,22 +140,22 @@ def check_audit_database():
     
     db_path = Path('audit_logs.db')
     if db_path.exists():
-        print(f"  ✅ Audit database exists: {db_path}")
+        print(f"  [OK] Audit database exists: {db_path}")
         
         # Check size
         size_kb = db_path.stat().st_size / 1024
-        print(f"  ✅ Database size: {size_kb:.2f} KB")
+        print(f"  [OK] Database size: {size_kb:.2f} KB")
         
         return True
     else:
-        print("  ⚠️  Audit database not found (will be created on first use)")
+        print("  [WARN] Audit database not found (will be created on first use)")
         return True  # Not an error, will be created
 
 def test_end_to_end():
     """Test end-to-end pipeline."""
     print_section("6. Testing End-to-End Pipeline")
     
-    print("  📝 To test the full pipeline:")
+    print("  To test the full pipeline:")
     print("     1. Terminal 1: python src/kafka_llm_processor.py")
     print("     2. Terminal 2: python src/test_producer.py --count 1")
     print("     3. Terminal 3: python src/test_consumer.py --max-messages 1")
@@ -188,14 +188,14 @@ def main():
     ])
     
     if all_good:
-        print("  ✅ Core services are running!")
+        print("  [OK] Core services are running!")
         print("\n  Next steps:")
         print("    1. Start processor: python src/kafka_llm_processor.py")
         print("    2. Send test data: python src/test_producer.py --count 3")
         print("    3. View results: python src/test_consumer.py")
         print("    4. Query audit logs: python src/test_compliance_api.py")
     else:
-        print("  ⚠️  Some services are not running.")
+        print("  [WARN] Some services are not running.")
         print("\n  Quick fixes:")
         if not results['docker']:
             print("    - Start Docker services: docker compose up -d")
@@ -206,9 +206,9 @@ def main():
             print("    - Pull model: python scripts/setup_ollama.py --model llama2")
     
     if results['compliance_api']:
-        print("\n  ✅ Compliance API is running - audit logs are accessible!")
+        print("\n  [OK] Compliance API is running - audit logs are accessible!")
     else:
-        print("\n  ⚠️  Compliance API not running (optional but recommended)")
+        print("\n  [WARN] Compliance API not running (optional but recommended)")
         print("    Start with: python src/compliance_api.py")
     
     return 0 if all_good else 1

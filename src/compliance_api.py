@@ -1,16 +1,27 @@
 """
 Compliance Query API for audit logs.
 
-Provides REST API for querying audit logs for regulatory compliance (SEC, FINRA).
+Provides REST API for querying audit logs for regulatory compliance:
+- SEC (Securities and Exchange Commission)
+- FINRA (Financial Industry Regulatory Authority)
+- MiFID II (Markets in Financial Instruments Directive)
+- GDPR (General Data Protection Regulation)
+- CCPA (California Consumer Privacy Act)
 """
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from typing import Dict, Optional
 
-from audit_logger import AuditLogger
+try:
+    from audit_logger import AuditLogger
+except ImportError:
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from audit_logger import AuditLogger
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -161,6 +172,206 @@ def get_statistics():
         
     except Exception as e:
         logger.error(f"Error getting statistics: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/compliance/prebuilt/sec', methods=['POST'])
+def sec_compliance_query():
+    """
+    Prebuilt SEC compliance query.
+    
+    SEC requirements:
+    - Complete audit trail of all transactions
+    - Request deduplication
+    - Time-range queries for reporting periods
+    
+    Request body (JSON):
+    {
+        "start_date": "2025-01-01",  # Start date (YYYY-MM-DD)
+        "end_date": "2025-01-31",    # End date (YYYY-MM-DD)
+        "tenant_id": "firm-123"      # Optional: filter by firm
+    }
+    """
+    try:
+        params = request.json or {}
+        start_date = params.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
+        end_date = params.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+        
+        filters = {
+            'start_time': f"{start_date}T00:00:00Z",
+            'end_time': f"{end_date}T23:59:59Z",
+            'limit': params.get('limit', 10000)
+        }
+        
+        if 'tenant_id' in params:
+            filters['tenant_id'] = params['tenant_id']
+        
+        results = audit_logger.query_logs(filters)
+        
+        return jsonify({
+            "compliance_standard": "SEC",
+            "reporting_period": f"{start_date} to {end_date}",
+            "count": len(results),
+            "results": results
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in SEC compliance query: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/compliance/prebuilt/finra', methods=['POST'])
+def finra_compliance_query():
+    """
+    Prebuilt FINRA compliance query.
+    
+    FINRA requirements:
+    - Complete request/response logging
+    - Error tracking and reporting
+    - Export capabilities for audits
+    
+    Request body (JSON):
+    {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-31",
+        "include_errors": true  # Include error logs
+    }
+    """
+    try:
+        params = request.json or {}
+        start_date = params.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
+        end_date = params.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+        include_errors = params.get('include_errors', True)
+        
+        filters = {
+            'start_time': f"{start_date}T00:00:00Z",
+            'end_time': f"{end_date}T23:59:59Z",
+            'limit': params.get('limit', 10000)
+        }
+        
+        if not include_errors:
+            filters['status'] = 'success'
+        
+        results = audit_logger.query_logs(filters)
+        
+        return jsonify({
+            "compliance_standard": "FINRA",
+            "reporting_period": f"{start_date} to {end_date}",
+            "include_errors": include_errors,
+            "count": len(results),
+            "results": results
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in FINRA compliance query: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/compliance/prebuilt/mifid2', methods=['POST'])
+def mifid2_compliance_query():
+    """
+    Prebuilt MiFID II compliance query.
+    
+    MiFID II requirements:
+    - Transaction reporting
+    - Explainability for algorithmic trading decisions
+    - Model version tracking
+    
+    Request body (JSON):
+    {
+        "start_date": "2025-01-01",
+        "end_date": "2025-01-31",
+        "require_explanations": true  # Only include requests with explanations
+    }
+    """
+    try:
+        params = request.json or {}
+        start_date = params.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
+        end_date = params.get('end_date', datetime.now().strftime('%Y-%m-%d'))
+        require_explanations = params.get('require_explanations', False)
+        
+        filters = {
+            'start_time': f"{start_date}T00:00:00Z",
+            'end_time': f"{end_date}T23:59:59Z",
+            'limit': params.get('limit', 10000)
+        }
+        
+        results = audit_logger.query_logs(filters)
+        
+        # Filter for explanations if required
+        if require_explanations:
+            results = [r for r in results if r.get('explanation')]
+        
+        return jsonify({
+            "compliance_standard": "MiFID II",
+            "reporting_period": f"{start_date} to {end_date}",
+            "require_explanations": require_explanations,
+            "count": len(results),
+            "results": results
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in MiFID II compliance query: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/compliance/prebuilt/gdpr', methods=['POST'])
+def gdpr_compliance_query():
+    """
+    Prebuilt GDPR compliance query.
+    
+    GDPR requirements:
+    - Right to access: Get all data for a user
+    - Right to deletion: Delete user data
+    - Data portability: Export user data
+    
+    Request body (JSON):
+    {
+        "user_id": "user-123",
+        "tenant_id": "tenant-abc",  # Optional
+        "action": "access"  # "access", "delete", or "export"
+    }
+    """
+    try:
+        params = request.json or {}
+        user_id = params.get('user_id')
+        tenant_id = params.get('tenant_id')
+        action = params.get('action', 'access')
+        
+        if not user_id:
+            return jsonify({"error": "user_id is required for GDPR queries"}), 400
+        
+        if action == 'delete':
+            # GDPR Right to Deletion
+            deleted_count = audit_logger.delete_user_data(user_id, tenant_id)
+            return jsonify({
+                "compliance_standard": "GDPR",
+                "action": "deletion",
+                "user_id": user_id,
+                "records_deleted": deleted_count
+            }), 200
+        
+        # GDPR Right to Access / Data Portability
+        filters = {
+            'user_id': user_id,
+            'limit': 10000
+        }
+        
+        if tenant_id:
+            filters['tenant_id'] = tenant_id
+        
+        results = audit_logger.query_logs(filters)
+        
+        return jsonify({
+            "compliance_standard": "GDPR",
+            "action": action,
+            "user_id": user_id,
+            "count": len(results),
+            "results": results
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in GDPR compliance query: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

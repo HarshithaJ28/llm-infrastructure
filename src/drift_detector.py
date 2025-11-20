@@ -277,6 +277,80 @@ class DriftDetector:
                 for k, v in (self.baseline_stats or {}).items()
             }
         }
+    
+    def track_output_quality(self, output: Dict, quality_score: float):
+        """
+        Track output quality metrics for drift detection.
+        
+        Args:
+            output: LLM output dictionary
+            quality_score: Quality score (0.0 to 1.0)
+        """
+        if not hasattr(self, 'quality_scores'):
+            self.quality_scores = deque(maxlen=self.baseline_window_size)
+        
+        self.quality_scores.append(quality_score)
+        
+        # Add quality to features for drift detection
+        if 'quality_score' not in output:
+            output['quality_score'] = quality_score
+    
+    def track_user_feedback(self, output: Dict, feedback_score: float):
+        """
+        Track user feedback for drift detection.
+        
+        Args:
+            output: LLM output dictionary
+            feedback_score: User feedback score (0.0 to 1.0, or -1 for negative)
+        """
+        if not hasattr(self, 'feedback_scores'):
+            self.feedback_scores = deque(maxlen=self.baseline_window_size)
+        
+        self.feedback_scores.append(feedback_score)
+        
+        # Add feedback to features
+        if 'feedback_score' not in output:
+            output['feedback_score'] = feedback_score
+    
+    def test_false_positive_rate(self, synthetic_samples: List[Dict]) -> Dict:
+        """
+        Test false positive rate using synthetic drift samples.
+        
+        Args:
+            synthetic_samples: List of synthetic output samples
+            
+        Returns:
+            Dictionary with false positive rate metrics
+        """
+        if not self.baseline_established:
+            return {"error": "Baseline not established"}
+        
+        false_positives = 0
+        total_tests = len(synthetic_samples)
+        
+        for sample in synthetic_samples:
+            drift_result = self._detect_drift_for_sample(sample)
+            if drift_result and drift_result.get('drift_detected'):
+                # Check if this is a false positive (synthetic sample should not drift)
+                false_positives += 1
+        
+        false_positive_rate = false_positives / total_tests if total_tests > 0 else 0.0
+        
+        return {
+            'false_positive_rate': false_positive_rate,
+            'false_positives': false_positives,
+            'total_tests': total_tests,
+            'threshold': self.drift_threshold
+        }
+    
+    def _detect_drift_for_sample(self, sample: Dict) -> Optional[Dict]:
+        """Internal method to detect drift for a single sample."""
+        features = self._extract_features(sample)
+        self.recent_outputs.append(features)
+        
+        if len(self.recent_outputs) >= self.min_samples:
+            return self._detect_drift()
+        return None
 
 
 class DriftMonitor:

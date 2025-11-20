@@ -19,13 +19,13 @@ def check_service(url: str, name: str, timeout: int = 30) -> bool:
         try:
             response = requests.get(url, timeout=2)
             if response.status_code == 200:
-                print("✅ OK")
+                print("[OK]")
                 return True
         except:
             pass
         time.sleep(1)
     
-    print("❌ FAILED")
+    print("[FAIL]")
     return False
 
 def check_kafka(broker: str = "localhost:9092") -> bool:
@@ -39,10 +39,10 @@ def check_kafka(broker: str = "localhost:9092") -> bool:
             request_timeout_ms=5000
         )
         producer.close()
-        print("✅ OK")
+        print("[OK]")
         return True
     except Exception as e:
-        print(f"❌ FAILED: {e}")
+        print(f"[FAIL]: {e}")
         return False
 
 def main():
@@ -61,7 +61,7 @@ def main():
         print("\n⚠️  Kafka not accessible. Start it with: docker-compose up -d")
         return False
     
-    print("\n✅ All services are running!")
+    print("\n[OK] All services are running!")
     print("\nTo test the pipeline:")
     print("1. Start processor: python src/kafka_llm_processor.py")
     print("2. Send test data: python src/test_producer.py --count 1")

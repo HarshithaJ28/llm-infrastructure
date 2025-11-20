@@ -22,7 +22,7 @@ docker-compose ps
 Write-Host "`n3. Installing Python dependencies..." -ForegroundColor Cyan
 pip install -r requirements.txt
 
-Write-Host "`n✅ Setup complete!" -ForegroundColor Green
+Write-Host "`n[OK] Setup complete!" -ForegroundColor Green
 Write-Host "`nNext steps:" -ForegroundColor Yellow
 Write-Host "  - Start processor: python src/kafka_llm_processor.py" -ForegroundColor White
 Write-Host "  - Send test data: python src/test_producer.py --count 3" -ForegroundColor White

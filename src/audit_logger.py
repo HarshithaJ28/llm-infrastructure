@@ -1,13 +1,15 @@
 """
 Audit logging system for LLM inference requests.
 
-Provides comprehensive audit trails for regulatory compliance (SEC, FINRA).
+Provides comprehensive audit trails for regulatory compliance (SEC, FINRA, GDPR, CCPA).
+Includes privacy-by-design features: field masking, anonymization, and encryption.
 """
 
 import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 from datetime import datetime
 from typing import Dict, Optional, List
@@ -15,22 +17,124 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Try to import encryption libraries (optional)
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    import base64
+    ENCRYPTION_AVAILABLE = True
+except ImportError:
+    ENCRYPTION_AVAILABLE = False
+    logger.warning("Encryption not available. Install with: pip install cryptography")
+
 
 class AuditLogger:
-    """Handles audit logging for LLM inference requests."""
+    """
+    Handles audit logging for LLM inference requests with privacy-by-design.
     
-    def __init__(self, db_path: Optional[str] = None):
+    Features:
+    - Field masking/anonymization for sensitive data
+    - Optional encryption for audit database
+    - GDPR/CCPA compliance support
+    - Per-tenant data isolation
+    """
+    
+    def __init__(self, db_path: Optional[str] = None, 
+                 mask_sensitive_fields: bool = True,
+                 anonymize_user_ids: bool = False,
+                 encrypt_db: bool = False,
+                 encryption_key: Optional[str] = None):
         """
-        Initialize audit logger.
+        Initialize audit logger with privacy features.
         
         Args:
             db_path: Path to SQLite database (default: ./audit_logs.db)
+            mask_sensitive_fields: Mask PII in audit logs by default (GDPR/CCPA)
+            anonymize_user_ids: Hash user IDs for anonymization
+            encrypt_db: Enable encryption for audit database
+            encryption_key: Encryption key (if None, uses ENCRYPT_AUDIT_DB_KEY env var)
         """
         if db_path is None:
             db_path = os.getenv('AUDIT_DB_PATH', 'audit_logs.db')
         
         self.db_path = db_path
+        self.mask_sensitive_fields = mask_sensitive_fields if os.getenv('MASK_SENSITIVE_FIELDS', 'true').lower() != 'false' else False
+        self.anonymize_user_ids = anonymize_user_ids if os.getenv('ANONYMIZE_USER_IDS', 'false').lower() == 'true' else False
+        self.encrypt_db = encrypt_db if os.getenv('ENCRYPT_AUDIT_DB', 'false').lower() == 'true' else False
+        
+        # Initialize encryption if enabled
+        self.encryption_key = None
+        self.cipher = None
+        if self.encrypt_db and ENCRYPTION_AVAILABLE:
+            key = encryption_key or os.getenv('ENCRYPT_AUDIT_DB_KEY')
+            if key:
+                self._init_encryption(key)
+            else:
+                logger.warning("Encryption enabled but no key provided. Generating key (store securely!)")
+                key = Fernet.generate_key()
+                logger.warning(f"Generated key: {key.decode()}. Set ENCRYPT_AUDIT_DB_KEY env var.")
+                self._init_encryption(key.decode())
+        
         self._init_database()
+    
+    def _init_encryption(self, key: str):
+        """Initialize encryption cipher."""
+        if not ENCRYPTION_AVAILABLE:
+            logger.error("Encryption requested but cryptography not available")
+            return
+        
+        # Derive key from password if needed
+        if len(key) != 44:  # Fernet key is 44 bytes base64 encoded
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=b'audit_log_salt',  # In production, use random salt per tenant
+                iterations=100000,
+            )
+            key_bytes = kdf.derive(key.encode())
+            key = base64.urlsafe_b64encode(key_bytes).decode()
+        
+        self.encryption_key = key
+        self.cipher = Fernet(key.encode())
+        logger.info("Encryption initialized for audit database")
+    
+    def _mask_sensitive_data(self, text: str) -> str:
+        """
+        Mask sensitive fields in text (PII, financial data).
+        
+        Patterns masked:
+        - Email addresses
+        - Phone numbers
+        - Credit card numbers
+        - SSNs
+        - Bank account numbers
+        """
+        if not text:
+            return text
+        
+        # Email addresses
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL_MASKED]', text)
+        
+        # Phone numbers (US format)
+        text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '[PHONE_MASKED]', text)
+        
+        # Credit card numbers (basic pattern)
+        text = re.sub(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b', '[CC_MASKED]', text)
+        
+        # SSNs
+        text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '[SSN_MASKED]', text)
+        
+        # Bank account numbers (long numeric strings)
+        text = re.sub(r'\b\d{10,}\b', lambda m: '[ACCOUNT_MASKED]' if len(m.group()) >= 10 else m.group(), text)
+        
+        return text
+    
+    def _anonymize_user_id(self, user_id: str) -> str:
+        """Anonymize user ID using SHA256 hash."""
+        if not user_id:
+            return user_id
+        return hashlib.sha256(user_id.encode('utf-8')).hexdigest()[:16]  # First 16 chars
         
     def _init_database(self):
         """Initialize audit logs database schema."""
@@ -132,6 +236,22 @@ class AuditLogger:
         tenant_id = metadata.get('tenant_id')
         user_id = metadata.get('user_id')
         source = metadata.get('source')
+        
+        # Privacy-by-design: Mask sensitive fields
+        if self.mask_sensitive_fields:
+            input_text = self._mask_sensitive_data(input_text) if input_text else None
+            output_text = self._mask_sensitive_data(output_text) if output_text else None
+        
+        # Privacy-by-design: Anonymize user IDs
+        if self.anonymize_user_ids and user_id:
+            user_id = self._anonymize_user_id(user_id)
+        
+        # Encrypt sensitive fields if encryption enabled
+        if self.encrypt_db and self.cipher:
+            if input_text:
+                input_text = self.cipher.encrypt(input_text.encode()).decode()
+            if output_text:
+                output_text = self.cipher.encrypt(output_text.encode()).decode()
         
         # Store in database
         conn = sqlite3.connect(self.db_path)
@@ -260,7 +380,48 @@ class AuditLogger:
             results.append(result)
         
         conn.close()
+        
+        # Decrypt results if encryption enabled
+        if self.encrypt_db and self.cipher:
+            for result in results:
+                try:
+                    if result.get('input_text'):
+                        result['input_text'] = self.cipher.decrypt(result['input_text'].encode()).decode()
+                    if result.get('output_text'):
+                        result['output_text'] = self.cipher.decrypt(result['output_text'].encode()).decode()
+                except Exception as e:
+                    logger.warning(f"Error decrypting audit log entry: {e}")
+        
         return results
+    
+    def delete_user_data(self, user_id: str, tenant_id: Optional[str] = None) -> int:
+        """
+        Delete all audit logs for a user (GDPR Right to Deletion).
+        
+        Args:
+            user_id: User ID to delete data for
+            tenant_id: Optional tenant ID for multi-tenant isolation
+            
+        Returns:
+            Number of records deleted
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        if tenant_id:
+            cursor.execute('''
+                DELETE FROM audit_logs 
+                WHERE user_id = ? AND tenant_id = ?
+            ''', (user_id, tenant_id))
+        else:
+            cursor.execute('DELETE FROM audit_logs WHERE user_id = ?', (user_id,))
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Deleted {deleted_count} audit log entries for user {user_id}")
+        return deleted_count
     
     def get_statistics(self) -> Dict:
         """Get audit log statistics."""

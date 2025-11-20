@@ -44,7 +44,7 @@ if __name__ == '__main__':
     print("=" * 60)
     
     if not test_health():
-        print("\n❌ API not running. Start it with:")
+        print("\n[FAIL] API not running. Start it with:")
         print("  python src/compliance_api.py")
         exit(1)
     

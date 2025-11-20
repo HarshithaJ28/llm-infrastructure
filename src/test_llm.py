@@ -29,20 +29,20 @@ def test_llm_completion(prompt: str, model: str = "mistralai/Mistral-7B-Instruct
         
         if response.status_code == 200:
             result = response.json()
-            print(f"\n✅ Success! Response time: {elapsed_time:.2f}s")
+            print(f"\n[OK] Success! Response time: {elapsed_time:.2f}s")
             print(f"Response: {result['choices'][0]['text']}")
             return result
         else:
-            print(f"\n❌ Error: {response.status_code}")
+            print(f"\n[FAIL] Error: {response.status_code}")
             print(f"Response: {response.text}")
             return None
             
     except requests.exceptions.ConnectionError:
-        print("\n❌ Connection error. Is vLLM server running?")
+        print("\n[FAIL] Connection error. Is vLLM server running?")
         print("Start it with: docker run -p 8000:8000 vllm/vllm-openai:latest --model mistralai/Mistral-7B-Instruct-v0.2")
         return None
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[FAIL] Error: {e}")
         return None
 
 def test_health():
@@ -52,10 +52,10 @@ def test_health():
     try:
         response = requests.get("http://localhost:8000/health", timeout=5)
         if response.status_code == 200:
-            print("✅ Server is healthy")
+            print("[OK] Server is healthy")
             return True
     except:
-        print("❌ Server is not responding")
+        print("[FAIL] Server is not responding")
         return False
 
 if __name__ == "__main__":
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     result = test_llm_completion(test_prompt)
     
     if result:
-        print("\n✅ All tests passed!")
+        print("\n[OK] All tests passed!")
     else:
-        print("\n❌ Tests failed")
+        print("\n[FAIL] Tests failed")
 

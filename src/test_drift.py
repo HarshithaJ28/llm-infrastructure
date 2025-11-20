@@ -46,9 +46,9 @@ def acknowledge_alert(alert_id: int):
     """Acknowledge an alert."""
     response = requests.post(f"{DRIFT_API_URL}/api/drift/alert/{alert_id}/acknowledge")
     if response.status_code == 200:
-        print(f"✅ Alert {alert_id} acknowledged")
+        print(f"[OK] Alert {alert_id} acknowledged")
     else:
-        print(f"❌ Failed to acknowledge alert: {response.text}")
+        print(f"[FAIL] Failed to acknowledge alert: {response.text}")
     return response.status_code == 200
 
 if __name__ == '__main__':
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     print("=" * 60)
     
     if not test_health():
-        print("\n❌ API not running. Start it with:")
+        print("\n[FAIL] API not running. Start it with:")
         print("  python src/drift_api.py")
         exit(1)
     
